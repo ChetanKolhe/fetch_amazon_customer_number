@@ -11,6 +11,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime
 import xlsxwriter
+import logging
 
 
 class Amazon:
@@ -21,6 +22,9 @@ class Amazon:
         # chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-setuid-sandbox')
         chrome_obj = ChromeDriverManager()
+
+        self.order_url = "https://sellercentral.amazon.in/orders-v3/order/"
+
         self.driver = webdriver.Chrome(executable_path=chrome_obj.install(),
                                        chrome_options=chrome_options)
 
@@ -45,45 +49,73 @@ class Amazon:
             print(order_date)
             if "ASIN" not in order_date:
                 order_details = tds[2].find_elements_by_tag_name("a")
-                order_id = order_details[0].text
-                order_name = order_details[1].text
-                print("Executed")
-                print(order_id)
+                try:
+                    order_id = order_details[0].text
+                    order_name = order_details[1].text
+                    print("Executed")
+                    print(order_id)
+                except Exception as e:
+                    print(e)
+                    print("order may be amazon full filled")
+                    continue
 
                 product_name = tr.find_element_by_class_name("myo-list-orders-product-name-cell").text
                 current_order_track = order_id
                 current_order[order_id] = {}
                 current_order[order_id]["product_order"] = [product_name]
                 current_order[order_id]["name"] = order_name
+                current_order[order_id]["date"] = order_date
             else:
                 product_order = tr.find_element_by_class_name("myo-list-orders-product-name-cell").text
                 current_order[current_order_track]["product_order"].append(product_order)
 
         return current_order
 
-    def fetch_all_information(self):
-        self.order_details = self.get_all_order_details()
-        for order_id in self.order_details:
-            try:
-                current_customer_info: dict = self.order_details[order_id]
-                order_link = self.driver.find_element_by_link_text(order_id)
-                # open a link in new tab
+    def fetch_all_information(self, pages):
+        try:
+            for page in range(2, pages):
+                # Get first page information
+                try:
+                    current_page_order_details = self.get_all_order_details()
+                    self.order_details.update(current_page_order_details)
+                except Exception as e:
+                    logging.exception(e)
+                    break
+
+                # Open a new tab
+                any_order_id = list(current_page_order_details.keys())[0]
+                current_customer_info: dict = current_page_order_details[any_order_id]
+                order_link = self.driver.find_element_by_link_text(any_order_id)
                 order_link.location_once_scrolled_into_view
-                # order_link.send_keys(Keys.COMMAND + 't')
                 from selenium.webdriver import ActionChains
                 actions = ActionChains(self.driver)
-                about = self.driver.find_element_by_link_text(order_id)
-                about = self.driver.find_element_by_link_text(order_id)
+                about = self.driver.find_element_by_link_text(any_order_id)
                 actions.key_down(Keys.CONTROL).click(about).key_up(Keys.CONTROL).perform()
-
                 self.wait.until(EC.number_of_windows_to_be(2))
 
-                individual_information: dict = self.fetch_individual_information()
-                current_customer_info.update(individual_information)
-            except Exception as e:
-                print(e)
-                if len(self.driver.window_handles) == 2:
-                    self.driver.switch_to.window(self=self.main_window)
+                # Click the next page
+                # self.driver.find_element_by_link_text("Next").click()
+                self.driver.find_element_by_xpath("//a[contains(text(),'Next')]").click()
+
+                self.driver.switch_to.window(window_name=self.driver.window_handles[1])
+
+                # Fetch the information
+                for order_id in current_page_order_details:
+                    try:
+                        current_customer_info = self.order_details[order_id]
+                        self.driver.get(self.order_url + order_id)
+                        individual_information: dict = self.fetch_individual_information()
+                        current_customer_info.update(individual_information)
+                    except Exception as e:
+                        print(e)
+                        if len(self.driver.window_handles) == 2:
+                            self.driver.switch_to.window(self=self.main_window)
+                        break
+
+                self.driver.close()
+                self.driver.switch_to.window(window_name=self.main_window)
+        except Exception as e:
+            logging.exception(e)
 
         with open("demo.json", mode="w") as fd:
             json.dump(self.order_details, fd, indent=3)
@@ -92,7 +124,6 @@ class Amazon:
 
     def fetch_individual_information(self):
 
-        self.driver.switch_to.window(window_name=self.driver.window_handles[1])
         result = {}
         try:
             ele = self.wait.until(EC.presence_of_element_located((By.XPATH,
@@ -108,8 +139,6 @@ class Amazon:
             phone_element = self.driver.find_element_by_xpath("//span[@data-test-id='shipping-section-phone']")
             phone_element = phone_element.text
 
-            self.driver.close()
-            self.driver.switch_to.window(window_name=self.main_window)
             return {"phone": phone_element, "address": address_text}
         except Exception as e:
             self.driver.switch_to.window(window_name=self.main_window)
@@ -122,56 +151,43 @@ class Amazon:
         :param order_dicts:
         :return:
         """
-        products = ["Multani", "Orange", "Sandalwood"]
+        products = ["Multani", "Orange", "Sandalwood", "Amla", "Hibiscus"]
 
         # Generate Excel sheet with different time zone
         current_date = datetime.now()
         workbook = xlsxwriter.Workbook(f"customer_list_{current_date.strftime('%Y%b%d_%H%M%S')}.xlsx")
         worksheet = workbook.add_worksheet()
 
-        worksheet.write('A1', 'Order ID')
-        worksheet.write('B1', 'Name')
-        worksheet.write('C1', 'Phone Number')
-        worksheet.write('D1', 'Address')
+        worksheet.write('A1', 'Date')
+        worksheet.write('B1', 'Order ID')
+        worksheet.write('C1', 'Name')
+        worksheet.write('D1', 'Phone Number')
+        worksheet.write('E1', 'Address')
 
         for index, value in enumerate(products):
             worksheet.write(0, 4 + index, value)
 
         for index, order_key in enumerate(order_dicts):
-            worksheet.write(index + 1, 0, order_key)
-            worksheet.write(index + 1, 1, order_dicts[order_key].get("name", "name_not_found"))
-            worksheet.write(index + 1, 2, order_dicts[order_key]["phone"])
-            worksheet.write(index + 1, 3, order_dicts[order_key]["address"])
+            worksheet.write(index + 1, 0, order_dicts[order_key].get("date", "date_not_found"))
+            worksheet.write(index + 1, 1, order_key)
+            worksheet.write(index + 1, 2, order_dicts[order_key].get("name", "name_not_found"))
+            worksheet.write(index + 1, 3, order_dicts[order_key].get("phone", "Number not Found"))
+            worksheet.write(index + 1, 4, order_dicts[order_key].get("address","Address not Found"))
 
             # Write the product quantity
             for or_pd in order_dicts[order_key]["product_order"]:
                 for pd_index, pd in enumerate(products):
                     if pd in or_pd:
-                        worksheet.write(index + 1, 4 + pd_index, "yes")
+                        worksheet.write(index + 1, 5 + pd_index, "yes")
 
         workbook.close()
 
 
 if __name__ == '__main__':
     a = Amazon()
-    input("Please login the screen and go to manage order ")
+    input("Please login the screen and go to manage order")
+
+    number_of_page = int(input("Enter the number of pages"))
     # a.get_all_order_details()
-    a.fetch_all_information()
 
-    for iteration in range(3):
-        second_time = str(input("Do you wish to execute script for next page , (yes/no)"))
-
-        if second_time.lower() == "yes":
-            # Empty the first page list
-            a.order_details = {}
-            a.fetch_all_information()
-        else:
-            break
-
-
-
-
-
-
-
-    print("This is break point")
+    a.fetch_all_information(number_of_page)
