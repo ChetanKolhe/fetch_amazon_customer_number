@@ -151,7 +151,7 @@ class Amazon:
         :param order_dicts:
         :return:
         """
-        products = ["Multani", "Orange", "Sandalwood", "Amla", "Hibiscus"]
+        products = ["Multani", "Orange", "Sandalwood", "Amla", "Hibiscus","Mulethi","Neem"]
 
         # Generate Excel sheet with different time zone
         current_date = datetime.now()
@@ -165,7 +165,7 @@ class Amazon:
         worksheet.write('E1', 'Address')
 
         for index, value in enumerate(products):
-            worksheet.write(0, 4 + index, value)
+            worksheet.write(0, 5 + index, value)
 
         for index, order_key in enumerate(order_dicts):
             worksheet.write(index + 1, 0, order_dicts[order_key].get("date", "date_not_found"))
