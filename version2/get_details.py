@@ -1,3 +1,5 @@
+import re
+
 from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, \
     ElementNotVisibleException, ElementNotSelectableException
 from selenium import webdriver
@@ -12,6 +14,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime
 import xlsxwriter
 import logging
+import time
 
 
 class Amazon:
@@ -34,6 +37,8 @@ class Amazon:
         self.wait = WebDriverWait(self.driver, 90, poll_frequency=0.1,
                                   ignored_exceptions=[NoSuchElementException, ElementNotVisibleException,
                                                       ElementNotSelectableException])
+
+        self.current_page_url = ""
 
     def get_all_order_details(self):
         order_table = self.driver.find_element_by_id("orders-table")
@@ -72,10 +77,16 @@ class Amazon:
         return current_order
 
     def fetch_all_information(self, pages):
+        # set current url
+        self.current_page_url = self.driver.current_url
+        page_pattern = re.compile(r"page=\d*")
+
         try:
-            for page in range(2, pages):
+            for page in range(1, pages):
                 # Get first page information
                 try:
+                    self.driver.get(url=page_pattern.sub(f"page={page}", self.current_page_url))
+                    time.sleep(60)
                     current_page_order_details = self.get_all_order_details()
                     self.order_details.update(current_page_order_details)
                 except Exception as e:
@@ -87,17 +98,20 @@ class Amazon:
                 current_customer_info: dict = current_page_order_details[any_order_id]
                 order_link = self.driver.find_element_by_link_text(any_order_id)
                 order_link.location_once_scrolled_into_view
-                from selenium.webdriver import ActionChains
-                actions = ActionChains(self.driver)
-                about = self.driver.find_element_by_link_text(any_order_id)
-                actions.key_down(Keys.CONTROL).click(about).key_up(Keys.CONTROL).perform()
-                self.wait.until(EC.number_of_windows_to_be(2))
+
+                # from selenium.webdriver import ActionChains
+                # actions = ActionChains(self.driver)
+                # about = self.driver.find_element_by_link_text(any_order_id)
+                # actions.key_down(Keys.CONTROL).click(about).key_up(Keys.CONTROL).perform()
+                # self.wait.until(EC.number_of_windows_to_be(2))
 
                 # Click the next page
                 # self.driver.find_element_by_link_text("Next").click()
-                self.driver.find_element_by_xpath("//a[contains(text(),'Next')]").click()
+                # self.driver.find_element_by_xpath("//a[contains(text(),'Next')]").click()
+                # self.driver.get(url=page_pattern.sub(f"page={page}", self.current_page_url))
+                # time.sleep(60)
 
-                self.driver.switch_to.window(window_name=self.driver.window_handles[1])
+                # self.driver.switch_to.window(window_name=self.driver.window_handles[1])
 
                 # Fetch the information
                 for order_id in current_page_order_details:
@@ -108,12 +122,12 @@ class Amazon:
                         current_customer_info.update(individual_information)
                     except Exception as e:
                         print(e)
-                        if len(self.driver.window_handles) == 2:
-                            self.driver.switch_to.window(self=self.main_window)
+                        # if len(self.driver.window_handles) == 2:
+                        #     self.driver.switch_to.window(self=self.main_window)
                         break
 
-                self.driver.close()
-                self.driver.switch_to.window(window_name=self.main_window)
+                # self.driver.close()
+                # self.driver.switch_to.window(window_name=self.main_window)
         except Exception as e:
             logging.exception(e)
 
@@ -141,7 +155,7 @@ class Amazon:
 
             return {"phone": phone_element, "address": address_text}
         except Exception as e:
-            self.driver.switch_to.window(window_name=self.main_window)
+            # self.driver.switch_to.window(window_name=self.main_window)
             return {"phone": "", "address": ""}
 
     @staticmethod
@@ -151,7 +165,7 @@ class Amazon:
         :param order_dicts:
         :return:
         """
-        products = ["Multani", "Orange", "Sandalwood", "Amla", "Hibiscus","Mulethi","Neem"]
+        products = ["Multani", "Orange", "Sandalwood", "Amla", "Hibiscus", "Mulethi", "Neem"]
 
         # Generate Excel sheet with different time zone
         current_date = datetime.now()
@@ -172,7 +186,7 @@ class Amazon:
             worksheet.write(index + 1, 1, order_key)
             worksheet.write(index + 1, 2, order_dicts[order_key].get("name", "name_not_found"))
             worksheet.write(index + 1, 3, order_dicts[order_key].get("phone", "Number not Found"))
-            worksheet.write(index + 1, 4, order_dicts[order_key].get("address","Address not Found"))
+            worksheet.write(index + 1, 4, order_dicts[order_key].get("address", "Address not Found"))
 
             # Write the product quantity
             for or_pd in order_dicts[order_key]["product_order"]:
